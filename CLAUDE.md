@@ -6,24 +6,18 @@ Korean News to Vietnamese Translation Web Application - a frontend news aggregat
 
 ## Tech Stack
 
-- **Frontend:** React (JSX) and standalone HTML5
-- **Styling:** Inline CSS with CSS variables, dark theme
-- **Translation APIs:** Anthropic Claude API (JSX), MyMemory API (HTML)
+- **Frontend:** Standalone HTML5
+- **Styling:** Inline CSS with CSS variables, light/dark theme support
+- **Translation API:** MyMemory API (free, no API key)
 - **CORS Proxy:** api.allorigins.win
 
 ## Project Structure
 
 ```
 news_app/
-├── korean-news-vn.jsx           # React component version
-├── korean-news-vietnamese.html  # Standalone HTML version
-└── mnt/user-data/outputs/       # Generated outputs
+├── index.html    # Main standalone app
+└── CLAUDE.md     # Project documentation
 ```
-
-## Two Implementations
-
-1. **JSX Version** (`korean-news-vn.jsx`) - React component for integration into larger apps, uses Claude API
-2. **HTML Version** (`korean-news-vietnamese.html`) - Standalone single-file app, uses MyMemory API
 
 ## News Sources
 
@@ -34,25 +28,28 @@ news_app/
 
 ## Key Configuration
 
-Configuration is embedded in source files:
-- `refreshInterval`: 5 minutes (300000ms)
-- `maxItemsPerSource`: 5
+Configuration is embedded in `index.html`:
+- `refreshInterval`: 10 minutes (600000ms)
+- `maxItemsPerSource`: 20
+- `itemsPerPage`: 6 (for infinite scroll)
 - CORS proxy: `https://api.allorigins.win/raw?url=`
 
 ## Build & Run
 
-No build system required. The HTML version runs directly in a browser. The JSX version requires a React environment.
+No build system required. Open `index.html` directly in a browser.
 
 ## Key Features
 
-- Real-time news aggregation from 4 sources
-- Automatic translation to Vietnamese
-- Translation caching
-- Auto-refresh every 5 minutes
-- Source filtering
-- New article notifications
+- Real-time news aggregation from 4 Korean news sources
+- Automatic translation to Vietnamese (MyMemory API)
+- Translation caching for performance
+- Auto-refresh every 10 minutes (manual refresh supported)
+- Source filtering tabs
+- Infinite scroll with lazy translation
+- New article notifications (toast)
+- Light/dark mode (follows system preference)
 - Responsive/mobile-friendly design
-- Fallback sample data
+- Fallback sample data when RSS fails
 
 ## Code Conventions
 
