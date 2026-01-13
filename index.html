@@ -23,6 +23,10 @@
       --text-muted: #8d99ae;
       --card-bg: rgba(26, 26, 46, 0.85);
       --border: rgba(233, 69, 96, 0.2);
+      --header-bg: rgba(15, 15, 26, 0.95);
+      --skeleton-shimmer: linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.05) 75%);
+      --shadow-card: rgba(0, 0, 0, 0.3);
+      --shadow-toast: rgba(0, 0, 0, 0.4);
     }
 
     @media (prefers-color-scheme: light) {
@@ -35,6 +39,10 @@
         --text-muted: #6c757d;
         --card-bg: rgba(255, 255, 255, 0.95);
         --border: rgba(233, 69, 96, 0.15);
+        --header-bg: rgba(255, 255, 255, 0.95);
+        --skeleton-shimmer: linear-gradient(90deg, rgba(0,0,0,0.05) 25%, rgba(0,0,0,0.1) 50%, rgba(0,0,0,0.05) 75%);
+        --shadow-card: rgba(0, 0, 0, 0.1);
+        --shadow-toast: rgba(0, 0, 0, 0.15);
       }
     }
 
@@ -50,9 +58,6 @@
     @media (prefers-color-scheme: light) {
       body {
         background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 50%, #f1f3f5 100%);
-      }
-      .header {
-        background: rgba(255, 255, 255, 0.95);
       }
       .bg-pattern {
         background-image:
@@ -78,7 +83,7 @@
       position: sticky;
       top: 0;
       z-index: 100;
-      background: rgba(15, 15, 26, 0.95);
+      background: var(--header-bg);
       backdrop-filter: blur(20px);
       -webkit-backdrop-filter: blur(20px);
       border-bottom: 1px solid var(--border);
@@ -311,7 +316,7 @@
     .news-card:hover {
       transform: translateY(-4px);
       border-color: rgba(233, 69, 96, 0.4);
-      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+      box-shadow: 0 10px 40px var(--shadow-card);
     }
 
     .news-card:hover::before {
@@ -410,7 +415,7 @@
     }
 
     .skeleton-elem {
-      background: linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.05) 75%);
+      background: var(--skeleton-shimmer);
       background-size: 200% 100%;
       animation: shimmer 1.5s infinite;
       border-radius: 4px;
@@ -490,7 +495,7 @@
       display: flex;
       align-items: center;
       gap: 0.8rem;
-      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+      box-shadow: 0 10px 40px var(--shadow-toast);
       transform: translateY(100px);
       opacity: 0;
       transition: all 0.3s ease;
@@ -787,9 +792,9 @@
       }
     }
 
-    // Translate a batch of news items (lazy translation)
+    // Translate a batch of news items (parallel for speed)
     async function translateNewsItems(items) {
-      for (const item of items) {
+      const translationPromises = items.map(async (item) => {
         // Translate title if not already translated
         if (!item.titleVi || item.titleVi === item.titleOriginal) {
           item.titleVi = await translateToVietnamese(item.titleOriginal);
@@ -799,7 +804,8 @@
           const cleanDesc = item.description.replace(/<[^>]*>/g, '').trim();
           item.descriptionVi = await translateToVietnamese(cleanDesc);
         }
-      }
+      });
+      await Promise.all(translationPromises);
     }
 
     // ============================================
@@ -865,19 +871,26 @@
         ? Object.keys(CONFIG.sources) 
         : [state.activeSource];
       
-      // Fetch from all selected sources
-      for (const sourceKey of sourcesToFetch) {
+      // Fetch from all selected sources in parallel
+      const fetchPromises = sourcesToFetch.map(async (sourceKey) => {
         const source = CONFIG.sources[sourceKey];
-        if (!source) continue;
-        
+        if (!source) return [];
+
         try {
           const xml = await fetchRSS(source.rss);
-          const items = parseRSSItems(xml, sourceKey);
-          allNews.push(...items);
+          return parseRSSItems(xml, sourceKey);
         } catch (error) {
           console.error(`Error fetching ${sourceKey}:`, error);
+          return [];
         }
-      }
+      });
+
+      const results = await Promise.allSettled(fetchPromises);
+      results.forEach(result => {
+        if (result.status === 'fulfilled') {
+          allNews.push(...result.value);
+        }
+      });
       
       // Sort by date (newest first)
       allNews.sort((a, b) => b.pubDate - a.pubDate);
