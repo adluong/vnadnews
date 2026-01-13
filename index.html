@@ -774,66 +774,88 @@
     // TRANSLATION (Using LibreTranslate or Google Translate)
     // ============================================
     
-    // Simple translation using MyMemory API (free, no API key needed)
+    // Translation using Google Translate API (free, no API key needed)
     async function translateToVietnamese(text) {
       if (!text || text.trim() === '') return text;
 
       // Check cache first
       if (state.translationCache.has(text)) {
-        console.log('Cache hit:', text.substring(0, 30));
         return state.translationCache.get(text);
       }
 
-      try {
-        // Truncate long text to avoid API limits (500 chars max for MyMemory)
-        const truncatedText = text.length > 450 ? text.substring(0, 450) + '...' : text;
+      // Try multiple translation methods
+      const translators = [
+        translateWithGoogle,
+        translateWithLingva,
+        translateWithMyMemory
+      ];
 
-        console.log('Translating:', truncatedText.substring(0, 50));
-
-        const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(truncatedText)}&langpair=en|vi`;
-        console.log('API URL:', url);
-
-        const response = await fetch(url);
-        console.log('Response status:', response.status);
-
-        if (!response.ok) {
-          console.error('Translation API HTTP error:', response.status);
-          setDebugStatus('Lỗi API: ' + response.status);
-          return text; // Return original on error
-        }
-
-        const data = await response.json();
-        console.log('API response:', JSON.stringify(data).substring(0, 200));
-
-        if (data.responseStatus === 200 && data.responseData?.translatedText) {
-          let translated = data.responseData.translatedText;
-
-          // MyMemory sometimes returns uppercase warning - filter it out
-          if (translated.includes('MYMEMORY WARNING')) {
-            console.warn('MyMemory daily limit warning');
-            setDebugStatus('API giới hạn hàng ngày');
-            return text;
+      for (const translator of translators) {
+        try {
+          const result = await translator(text);
+          if (result && result !== text) {
+            state.translationCache.set(text, result);
+            return result;
           }
-
-          // Check if translation is different from original
-          if (translated.toLowerCase() !== truncatedText.toLowerCase()) {
-            console.log('SUCCESS:', truncatedText.substring(0, 30), '->', translated.substring(0, 30));
-            state.translationCache.set(text, translated);
-            return translated;
-          } else {
-            console.warn('Translation returned same text');
-            return text;
-          }
+        } catch (e) {
+          console.warn(`Translator failed:`, e.message);
         }
-
-        console.warn('Translation failed:', data.responseStatus, data.responseDetails);
-        setDebugStatus('Dịch thất bại: ' + (data.responseDetails || 'Unknown'));
-        return text;
-      } catch (error) {
-        console.error('Translation exception:', error.message);
-        setDebugStatus('Lỗi: ' + error.message);
-        return text;
       }
+
+      return text; // Return original if all fail
+    }
+
+    // Google Translate (via public API)
+    async function translateWithGoogle(text) {
+      const truncated = text.length > 500 ? text.substring(0, 500) : text;
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=vi&dt=t&q=${encodeURIComponent(truncated)}`;
+
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Google API error: ' + response.status);
+
+      const data = await response.json();
+      // Response format: [[["translated text","original text",null,null,10]],null,"en",...]
+      if (data && data[0] && data[0][0] && data[0][0][0]) {
+        const translated = data[0].map(item => item[0]).join('');
+        console.log('Google translated:', text.substring(0, 30), '->', translated.substring(0, 30));
+        return translated;
+      }
+      throw new Error('Invalid Google response format');
+    }
+
+    // Lingva Translate (open source Google Translate frontend)
+    async function translateWithLingva(text) {
+      const truncated = text.length > 500 ? text.substring(0, 500) : text;
+      const url = `https://lingva.ml/api/v1/en/vi/${encodeURIComponent(truncated)}`;
+
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Lingva API error: ' + response.status);
+
+      const data = await response.json();
+      if (data && data.translation) {
+        console.log('Lingva translated:', text.substring(0, 30), '->', data.translation.substring(0, 30));
+        return data.translation;
+      }
+      throw new Error('Invalid Lingva response');
+    }
+
+    // MyMemory Translate (fallback)
+    async function translateWithMyMemory(text) {
+      const truncated = text.length > 450 ? text.substring(0, 450) : text;
+      const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(truncated)}&langpair=en|vi`;
+
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('MyMemory API error: ' + response.status);
+
+      const data = await response.json();
+      if (data.responseStatus === 200 && data.responseData?.translatedText) {
+        const translated = data.responseData.translatedText;
+        if (!translated.includes('MYMEMORY WARNING')) {
+          console.log('MyMemory translated:', text.substring(0, 30), '->', translated.substring(0, 30));
+          return translated;
+        }
+      }
+      throw new Error('MyMemory translation failed');
     }
 
     // Translate a batch of news items (parallel for speed, with rate limiting)
@@ -1331,11 +1353,16 @@
       setDebugStatus('Kiểm tra API dịch...');
 
       // Test translation API first
+      console.log('Testing translation APIs...');
       const testResult = await translateToVietnamese('Hello world');
+      console.log('Test result:', testResult);
+
       if (testResult === 'Hello world') {
-        setDebugStatus('API dịch KHÔNG hoạt động!');
+        setDebugStatus('API dịch thất bại - dùng tiếng Anh');
+        console.error('All translation APIs failed!');
       } else {
-        setDebugStatus('API dịch OK: ' + testResult);
+        setDebugStatus('API OK: ' + testResult);
+        console.log('Translation working:', testResult);
       }
 
       // Try to fetch real RSS feeds
