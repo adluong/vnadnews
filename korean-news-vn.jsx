@@ -10,24 +10,39 @@ const NEWS_SOURCES = [
   { id: 'koreaherald', name: 'Korea Herald', nameVi: 'Korea Herald', icon: '📋' },
 ];
 
+// Items per page for infinite scroll
+const ITEMS_PER_PAGE = 6;
+
 // Mock news data (in production, replace with actual RSS/API calls)
 const SAMPLE_NEWS = {
   yonhap: [
     { id: 1, titleKo: '한국 경제 성장률 전망 상향 조정', titleVi: 'Điều chỉnh tăng dự báo tăng trưởng kinh tế Hàn Quốc', date: '2025-01-13', category: 'Kinh tế' },
     { id: 2, titleKo: '서울시, 새해 문화 행사 계획 발표', titleVi: 'Seoul công bố kế hoạch sự kiện văn hóa năm mới', date: '2025-01-13', category: 'Văn hóa' },
     { id: 3, titleKo: '한류 콘텐츠 수출 사상 최대 기록', titleVi: 'Xuất khẩu nội dung Hallyu đạt kỷ lục cao nhất mọi thời đại', date: '2025-01-12', category: 'Giải trí' },
+    { id: 10, titleKo: '삼성전자, 신형 스마트폰 공개', titleVi: 'Samsung Electronics ra mắt điện thoại thông minh mới', date: '2025-01-11', category: 'Công nghệ' },
+    { id: 11, titleKo: '한국은행, 기준금리 동결 결정', titleVi: 'Ngân hàng Hàn Quốc quyết định giữ nguyên lãi suất cơ bản', date: '2025-01-11', category: 'Kinh tế' },
+    { id: 12, titleKo: '부산 국제 영화제 일정 발표', titleVi: 'Công bố lịch trình Liên hoan phim Quốc tế Busan', date: '2025-01-10', category: 'Văn hóa' },
   ],
   kbs: [
     { id: 4, titleKo: '겨울철 한파 주의보 발령', titleVi: 'Cảnh báo giá rét mùa đông được ban hành', date: '2025-01-13', category: 'Thời tiết' },
     { id: 5, titleKo: '국가대표 축구팀 아시안컵 준비', titleVi: 'Đội tuyển bóng đá quốc gia chuẩn bị cho Asian Cup', date: '2025-01-12', category: 'Thể thao' },
+    { id: 13, titleKo: '서울 지하철 신규 노선 개통', titleVi: 'Khai trương tuyến tàu điện ngầm mới tại Seoul', date: '2025-01-10', category: 'Giao thông' },
+    { id: 14, titleKo: '한국 드라마 넷플릭스 글로벌 1위', titleVi: 'Phim Hàn Quốc đứng đầu toàn cầu trên Netflix', date: '2025-01-09', category: 'Giải trí' },
+    { id: 15, titleKo: '제주도 관광객 역대 최다 기록', titleVi: 'Đảo Jeju ghi nhận lượng khách du lịch cao kỷ lục', date: '2025-01-09', category: 'Du lịch' },
   ],
   arirang: [
     { id: 6, titleKo: '한국 관광 산업 회복세 지속', titleVi: 'Ngành du lịch Hàn Quốc tiếp tục phục hồi', date: '2025-01-13', category: 'Du lịch' },
     { id: 7, titleKo: '신기술 스타트업 투자 증가', titleVi: 'Đầu tư vào startup công nghệ mới tăng', date: '2025-01-12', category: 'Công nghệ' },
+    { id: 16, titleKo: 'K-뷰티 동남아 시장 진출 확대', titleVi: 'K-Beauty mở rộng thị trường Đông Nam Á', date: '2025-01-08', category: 'Kinh tế' },
+    { id: 17, titleKo: '한국어 학습자 전 세계 1천만 돌파', titleVi: 'Người học tiếng Hàn trên toàn thế giới vượt 10 triệu', date: '2025-01-08', category: 'Giáo dục' },
+    { id: 18, titleKo: '친환경 전기차 수출 급증', titleVi: 'Xuất khẩu xe điện thân thiện môi trường tăng mạnh', date: '2025-01-07', category: 'Công nghệ' },
   ],
   koreaherald: [
     { id: 8, titleKo: '한-베트남 경제 협력 강화', titleVi: 'Tăng cường hợp tác kinh tế Hàn Quốc-Việt Nam', date: '2025-01-13', category: 'Quốc tế' },
     { id: 9, titleKo: 'K-푸드 세계적 인기 상승', titleVi: 'K-Food ngày càng phổ biến trên toàn cầu', date: '2025-01-12', category: 'Ẩm thực' },
+    { id: 19, titleKo: '한국 의료관광 아시아 1위', titleVi: 'Du lịch y tế Hàn Quốc đứng đầu châu Á', date: '2025-01-07', category: 'Y tế' },
+    { id: 20, titleKo: 'BTS 멤버 솔로 앨범 발매', titleVi: 'Thành viên BTS phát hành album solo', date: '2025-01-06', category: 'Giải trí' },
+    { id: 21, titleKo: '한국 반도체 수출 회복세', titleVi: 'Xuất khẩu bán dẫn Hàn Quốc phục hồi', date: '2025-01-06', category: 'Kinh tế' },
   ],
 };
 
@@ -86,16 +101,23 @@ export default function KoreanNewsVN() {
   const [activeSource, setActiveSource] = useState('all');
   const [news, setNews] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [displayedCount, setDisplayedCount] = useState(ITEMS_PER_PAGE);
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [autoRefresh, setAutoRefresh] = useState(true);
+
+  // Get displayed news (for infinite scroll)
+  const displayedNews = news.slice(0, displayedCount);
+  const hasMore = displayedCount < news.length;
 
   // Fetch and combine news from all sources
   const fetchNews = useCallback(async () => {
     setLoading(true);
-    
+    setDisplayedCount(ITEMS_PER_PAGE); // Reset to first page
+
     // Simulate API call delay
     await new Promise(resolve => setTimeout(resolve, 800));
-    
+
     let allNews = [];
     if (activeSource === 'all') {
       Object.values(SAMPLE_NEWS).forEach(sourceNews => {
@@ -104,24 +126,54 @@ export default function KoreanNewsVN() {
     } else {
       allNews = SAMPLE_NEWS[activeSource] || [];
     }
-    
+
     // Sort by date (newest first)
     allNews.sort((a, b) => new Date(b.date) - new Date(a.date));
-    
+
     setNews(allNews);
     setLastUpdate(new Date());
     setLoading(false);
   }, [activeSource]);
 
+  // Load more news when scrolling
+  const loadMoreNews = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+
+    setLoadingMore(true);
+
+    // Simulate translation delay
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    setDisplayedCount(prev => Math.min(prev + ITEMS_PER_PAGE, news.length));
+    setLoadingMore(false);
+  }, [loadingMore, hasMore, news.length]);
+
+  // Scroll event listener for infinite scroll
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollY = window.scrollY;
+      const windowHeight = window.innerHeight;
+      const docHeight = document.documentElement.scrollHeight;
+
+      // Load more when 200px from bottom
+      if (scrollY + windowHeight >= docHeight - 200) {
+        loadMoreNews();
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [loadMoreNews]);
+
   // Initial fetch and auto-refresh
   useEffect(() => {
     fetchNews();
-    
+
     let interval;
     if (autoRefresh) {
       interval = setInterval(fetchNews, 60000); // Refresh every minute
     }
-    
+
     return () => clearInterval(interval);
   }, [fetchNews, autoRefresh]);
 
@@ -195,10 +247,25 @@ export default function KoreanNewsVN() {
       <main className="news-grid">
         {loading ? (
           Array(6).fill(0).map((_, i) => <LoadingSkeleton key={i} />)
-        ) : news.length > 0 ? (
-          news.map(item => (
-            <NewsCard key={item.id} news={item} />
-          ))
+        ) : displayedNews.length > 0 ? (
+          <>
+            {displayedNews.map(item => (
+              <NewsCard key={item.id} news={item} />
+            ))}
+            {/* Loading more indicator */}
+            {loadingMore && (
+              <div className="load-more">
+                <div className="load-more-spinner"></div>
+                <span>Đang dịch tin tức...</span>
+              </div>
+            )}
+            {/* End of news indicator */}
+            {!hasMore && !loadingMore && (
+              <div className="end-of-news">
+                Đã hiển thị tất cả {news.length} tin tức
+              </div>
+            )}
+          </>
         ) : (
           <div className="empty-state">
             <span className="empty-icon">📭</span>
@@ -569,6 +636,35 @@ export default function KoreanNewsVN() {
           font-size: 3rem;
           display: block;
           margin-bottom: 1rem;
+        }
+
+        /* Load More Indicator */
+        .load-more {
+          grid-column: 1 / -1;
+          text-align: center;
+          padding: 2rem;
+          color: var(--text-muted);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 0.8rem;
+        }
+
+        .load-more-spinner {
+          width: 24px;
+          height: 24px;
+          border: 3px solid var(--border);
+          border-top-color: var(--accent);
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+        }
+
+        .end-of-news {
+          grid-column: 1 / -1;
+          text-align: center;
+          padding: 2rem;
+          color: var(--text-muted);
+          font-size: 0.9rem;
         }
 
         /* Footer */
