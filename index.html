@@ -787,6 +787,21 @@
       }
     }
 
+    // Translate a batch of news items (lazy translation)
+    async function translateNewsItems(items) {
+      for (const item of items) {
+        // Translate title if not already translated
+        if (!item.titleVi || item.titleVi === item.titleOriginal) {
+          item.titleVi = await translateToVietnamese(item.titleOriginal);
+        }
+        // Translate description if exists and not already translated
+        if (item.description && (!item.descriptionVi || item.descriptionVi === item.description)) {
+          const cleanDesc = item.description.replace(/<[^>]*>/g, '').trim();
+          item.descriptionVi = await translateToVietnamese(cleanDesc);
+        }
+      }
+    }
+
     // ============================================
     // RSS PARSING
     // ============================================
@@ -866,17 +881,9 @@
       
       // Sort by date (newest first)
       allNews.sort((a, b) => b.pubDate - a.pubDate);
-      
-      // Translate titles and descriptions
-      for (const item of allNews) {
-        item.titleVi = await translateToVietnamese(item.titleOriginal);
-        if (item.description) {
-          // Clean HTML tags from description and translate
-          const cleanDesc = item.description.replace(/<[^>]*>/g, '').trim();
-          item.descriptionVi = await translateToVietnamese(cleanDesc);
-        }
-      }
-      
+
+      // Note: Translation is now done lazily in renderNews() for better performance
+
       // Check for new items
       const existingIds = new Set(state.news.map(n => n.titleOriginal));
       allNews.forEach(item => {
@@ -887,12 +894,11 @@
       
       state.news = allNews;
       state.loading = false;
-      
+
       elements.refreshBtn.classList.remove('spinning');
-      showTranslateStatus(false);
       updateLastUpdate();
-      renderNews();
-      
+      await renderNews();
+
       // Show toast if new items
       const newItems = allNews.filter(n => n.isNew);
       if (newItems.length > 0) {
@@ -1014,7 +1020,7 @@
       `;
     }
 
-    function renderNews(reset = true) {
+    async function renderNews(reset = true) {
       const allNews = getFilteredNews();
 
       elements.newsCount.textContent = `${allNews.length} tin tức`;
@@ -1039,6 +1045,11 @@
       const endIndex = Math.min(startIndex + CONFIG.itemsPerPage, allNews.length);
       const newsToRender = allNews.slice(startIndex, endIndex);
 
+      // Lazy translation: only translate items being displayed
+      showTranslateStatus(true);
+      await translateNewsItems(newsToRender);
+      showTranslateStatus(false);
+
       const html = newsToRender.map((item, i) => renderNewsCard(item, startIndex + i)).join('');
       elements.newsGrid.insertAdjacentHTML('beforeend', html);
 
@@ -1055,7 +1066,7 @@
       }
     }
 
-    function loadMoreNews() {
+    async function loadMoreNews() {
       const allNews = getFilteredNews();
       if (state.loadingMore || state.displayedCount >= allNews.length) return;
 
@@ -1068,18 +1079,17 @@
       elements.newsGrid.insertAdjacentHTML('beforeend', `
         <div class="load-more">
           <div class="load-more-spinner"></div>
-          <span class="load-more-text">Đang tải thêm...</span>
+          <span class="load-more-text">Đang dịch tin tức...</span>
         </div>
       `);
 
-      // Simulate small delay for UX
-      setTimeout(() => {
-        const loadingEl = elements.newsGrid.querySelector('.load-more');
-        if (loadingEl) loadingEl.remove();
+      // Translate and render next batch
+      await renderNews(false);
 
-        renderNews(false);
-        state.loadingMore = false;
-      }, 300);
+      const loadingEl = elements.newsGrid.querySelector('.load-more');
+      if (loadingEl) loadingEl.remove();
+
+      state.loadingMore = false;
     }
 
     function handleScroll() {
@@ -1143,7 +1153,7 @@
       startAutoRefresh();
     });
 
-    elements.sourceTabs.addEventListener('click', (e) => {
+    elements.sourceTabs.addEventListener('click', async (e) => {
       const tab = e.target.closest('.tab');
       if (!tab) return;
 
@@ -1153,7 +1163,7 @@
 
       // Update state and re-render (reset to first page)
       state.activeSource = tab.dataset.source;
-      renderNews(true);
+      await renderNews(true);
     });
 
     // Infinite scroll listener
@@ -1172,7 +1182,7 @@
       // If no news loaded, use sample data
       if (state.news.length === 0) {
         state.news = getSampleNews();
-        renderNews();
+        await renderNews();
         showToast('Đang dùng dữ liệu mẫu');
       }
       
