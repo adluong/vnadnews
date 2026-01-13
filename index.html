@@ -25,13 +25,41 @@
       --border: rgba(233, 69, 96, 0.2);
     }
 
+    @media (prefers-color-scheme: light) {
+      :root {
+        --primary: #ffffff;
+        --secondary: #f8f9fa;
+        --accent: #e94560;
+        --accent-soft: #ff6b6b;
+        --text: #1a1a2e;
+        --text-muted: #6c757d;
+        --card-bg: rgba(255, 255, 255, 0.95);
+        --border: rgba(233, 69, 96, 0.15);
+      }
+    }
+
     body {
       min-height: 100vh;
       font-family: 'Be Vietnam Pro', 'Noto Sans KR', sans-serif;
-      background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+      background: var(--body-bg, linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%));
       color: var(--text);
       position: relative;
       overflow-x: hidden;
+    }
+
+    @media (prefers-color-scheme: light) {
+      body {
+        background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 50%, #f1f3f5 100%);
+      }
+      .header {
+        background: rgba(255, 255, 255, 0.95);
+      }
+      .bg-pattern {
+        background-image:
+          radial-gradient(circle at 20% 80%, rgba(233, 69, 96, 0.06) 0%, transparent 50%),
+          radial-gradient(circle at 80% 20%, rgba(233, 69, 96, 0.04) 0%, transparent 40%),
+          url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23e94560' fill-opacity='0.04'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+      }
     }
 
     .bg-pattern {
@@ -337,6 +365,17 @@
       border-left: 2px solid var(--border);
     }
 
+    .card-summary {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+      margin-top: 0.8rem;
+      display: -webkit-box;
+      -webkit-line-clamp: 4;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
     .card-footer {
       display: flex;
       justify-content: space-between;
@@ -498,6 +537,39 @@
       animation: spin 1s linear infinite;
     }
 
+    /* Load More Indicator */
+    .load-more {
+      grid-column: 1 / -1;
+      text-align: center;
+      padding: 2rem;
+      color: var(--text-muted);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.8rem;
+    }
+
+    .load-more-spinner {
+      width: 24px;
+      height: 24px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    .load-more-text {
+      font-size: 0.9rem;
+    }
+
+    .end-of-news {
+      grid-column: 1 / -1;
+      text-align: center;
+      padding: 2rem;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+
     /* Responsive */
     @media (max-width: 640px) {
       .header-content {
@@ -645,9 +717,12 @@
       
       // Refresh interval in milliseconds (5 minutes)
       refreshInterval: 300000,
-      
-      // Max news items per source
-      maxItemsPerSource: 5
+
+      // Max news items per source (for RSS fetch)
+      maxItemsPerSource: 20,
+
+      // Items to display per page (for infinite scroll)
+      itemsPerPage: 6
     };
 
     // ============================================
@@ -657,7 +732,9 @@
     let state = {
       activeSource: 'all',
       news: [],
+      displayedCount: 0,
       loading: false,
+      loadingMore: false,
       autoRefresh: true,
       refreshTimer: null,
       translationCache: new Map()
@@ -747,6 +824,7 @@
           titleOriginal: title,
           titleVi: title, // Will be translated
           description: description,
+          descriptionVi: description, // Will be translated
           link: link,
           pubDate: new Date(pubDate),
           isNew: false
@@ -789,9 +867,14 @@
       // Sort by date (newest first)
       allNews.sort((a, b) => b.pubDate - a.pubDate);
       
-      // Translate titles
+      // Translate titles and descriptions
       for (const item of allNews) {
         item.titleVi = await translateToVietnamese(item.titleOriginal);
+        if (item.description) {
+          // Clean HTML tags from description and translate
+          const cleanDesc = item.description.replace(/<[^>]*>/g, '').trim();
+          item.descriptionVi = await translateToVietnamese(cleanDesc);
+        }
       }
       
       // Check for new items
@@ -828,6 +911,7 @@
           source: 'yonhap',
           titleOriginal: 'South Korea sees economic growth forecast raised',
           titleVi: 'Hàn Quốc nâng dự báo tăng trưởng kinh tế',
+          descriptionVi: 'Các chuyên gia kinh tế đã nâng dự báo tăng trưởng GDP của Hàn Quốc trong năm nay lên mức cao hơn, nhờ vào sự phục hồi mạnh mẽ của ngành xuất khẩu và tiêu dùng nội địa. Chính phủ cũng đã công bố các biện pháp hỗ trợ doanh nghiệp nhỏ và vừa.',
           link: '#',
           pubDate: new Date(),
           isNew: false
@@ -837,6 +921,7 @@
           source: 'kbs',
           titleOriginal: 'Winter cold wave warning issued across the country',
           titleVi: 'Cảnh báo giá rét mùa đông được ban hành trên toàn quốc',
+          descriptionVi: 'Cơ quan khí tượng Hàn Quốc đã ban hành cảnh báo về đợt không khí lạnh sắp tràn xuống, với nhiệt độ dự kiến giảm xuống dưới âm 15 độ C tại các vùng núi phía bắc. Người dân được khuyến cáo hạn chế ra ngoài vào ban đêm.',
           link: '#',
           pubDate: new Date(Date.now() - 3600000),
           isNew: false
@@ -846,6 +931,7 @@
           source: 'arirang',
           titleOriginal: 'K-pop group achieves record-breaking album sales',
           titleVi: 'Nhóm K-pop đạt doanh số album kỷ lục',
+          descriptionVi: 'Album mới nhất của nhóm nhạc K-pop nổi tiếng đã phá vỡ kỷ lục doanh số trong tuần đầu tiên phát hành, với hơn 2 triệu bản được bán ra trên toàn cầu. Đây là thành tích cao nhất trong lịch sử âm nhạc Hàn Quốc.',
           link: '#',
           pubDate: new Date(Date.now() - 7200000),
           isNew: false
@@ -855,6 +941,7 @@
           source: 'koreaherald',
           titleOriginal: 'Korea-Vietnam economic cooperation strengthened',
           titleVi: 'Hợp tác kinh tế Hàn Quốc-Việt Nam được tăng cường',
+          descriptionVi: 'Hai nước đã ký kết nhiều thỏa thuận hợp tác mới trong các lĩnh vực công nghệ, năng lượng tái tạo và giáo dục. Kim ngạch thương mại song phương dự kiến sẽ đạt 100 tỷ USD trong năm tới, tăng 15% so với năm trước.',
           link: '#',
           pubDate: new Date(Date.now() - 10800000),
           isNew: false
@@ -864,6 +951,7 @@
           source: 'yonhap',
           titleOriginal: 'Seoul announces new cultural festival plans',
           titleVi: 'Seoul công bố kế hoạch lễ hội văn hóa mới',
+          descriptionVi: 'Thành phố Seoul sẽ tổ chức lễ hội văn hóa quốc tế kéo dài một tháng vào mùa xuân năm sau, với sự tham gia của hơn 50 quốc gia. Sự kiện sẽ bao gồm các buổi biểu diễn nghệ thuật, triển lãm và ẩm thực đường phố.',
           link: '#',
           pubDate: new Date(Date.now() - 14400000),
           isNew: false
@@ -873,6 +961,7 @@
           source: 'kbs',
           titleOriginal: 'National football team prepares for Asian Cup',
           titleVi: 'Đội tuyển bóng đá quốc gia chuẩn bị cho Asian Cup',
+          descriptionVi: 'Đội tuyển bóng đá quốc gia Hàn Quốc đang tập trung chuẩn bị cho giải vô địch Asian Cup sắp tới. Huấn luyện viên trưởng đã triệu tập 26 cầu thủ, bao gồm nhiều ngôi sao đang thi đấu tại châu Âu.',
           link: '#',
           pubDate: new Date(Date.now() - 18000000),
           isNew: false
@@ -895,45 +984,113 @@
       `).join('');
     }
 
-    function renderNews() {
-      const newsToShow = state.activeSource === 'all' 
-        ? state.news 
+    function getFilteredNews() {
+      return state.activeSource === 'all'
+        ? state.news
         : state.news.filter(n => n.source === state.activeSource);
-      
-      elements.newsCount.textContent = `${newsToShow.length} tin tức`;
-      
-      if (newsToShow.length === 0) {
+    }
+
+    function renderNewsCard(item, index) {
+      const source = CONFIG.sources[item.source];
+      const timeAgo = getTimeAgo(item.pubDate);
+
+      return `
+        <a href="${item.link}" target="_blank" rel="noopener"
+           class="news-card" style="animation-delay: ${index * 0.05}s">
+          <div class="card-header">
+            <span class="card-source">
+              ${source?.icon || '📰'} ${source?.name || item.source}
+            </span>
+            ${item.isNew ? '<span class="card-new-badge">MỚI</span>' : ''}
+          </div>
+          <h3 class="card-title-vi">${item.titleVi}</h3>
+          <p class="card-title-ko">${item.titleOriginal}</p>
+          ${item.descriptionVi ? `<p class="card-summary">${item.descriptionVi}</p>` : ''}
+          <div class="card-footer">
+            <span class="card-date">${timeAgo}</span>
+            <span class="card-link">Đọc thêm →</span>
+          </div>
+        </a>
+      `;
+    }
+
+    function renderNews(reset = true) {
+      const allNews = getFilteredNews();
+
+      elements.newsCount.textContent = `${allNews.length} tin tức`;
+
+      if (allNews.length === 0) {
         elements.newsGrid.innerHTML = `
           <div class="empty-state">
             <span class="empty-icon">📭</span>
             <p>Không có tin tức. Nhấn nút làm mới để tải tin.</p>
           </div>
         `;
+        state.displayedCount = 0;
         return;
       }
-      
-      elements.newsGrid.innerHTML = newsToShow.map((item, index) => {
-        const source = CONFIG.sources[item.source];
-        const timeAgo = getTimeAgo(item.pubDate);
-        
-        return `
-          <a href="${item.link}" target="_blank" rel="noopener" 
-             class="news-card" style="animation-delay: ${index * 0.1}s">
-            <div class="card-header">
-              <span class="card-source">
-                ${source?.icon || '📰'} ${source?.name || item.source}
-              </span>
-              ${item.isNew ? '<span class="card-new-badge">MỚI</span>' : ''}
-            </div>
-            <h3 class="card-title-vi">${item.titleVi}</h3>
-            <p class="card-title-ko">${item.titleOriginal}</p>
-            <div class="card-footer">
-              <span class="card-date">${timeAgo}</span>
-              <span class="card-link">Đọc thêm →</span>
-            </div>
-          </a>
-        `;
-      }).join('');
+
+      if (reset) {
+        state.displayedCount = 0;
+        elements.newsGrid.innerHTML = '';
+      }
+
+      const startIndex = state.displayedCount;
+      const endIndex = Math.min(startIndex + CONFIG.itemsPerPage, allNews.length);
+      const newsToRender = allNews.slice(startIndex, endIndex);
+
+      const html = newsToRender.map((item, i) => renderNewsCard(item, startIndex + i)).join('');
+      elements.newsGrid.insertAdjacentHTML('beforeend', html);
+
+      state.displayedCount = endIndex;
+
+      // Add end indicator or loading placeholder
+      const existingIndicator = elements.newsGrid.querySelector('.load-more, .end-of-news');
+      if (existingIndicator) existingIndicator.remove();
+
+      if (state.displayedCount >= allNews.length) {
+        elements.newsGrid.insertAdjacentHTML('beforeend', `
+          <div class="end-of-news">Đã hiển thị tất cả tin tức</div>
+        `);
+      }
+    }
+
+    function loadMoreNews() {
+      const allNews = getFilteredNews();
+      if (state.loadingMore || state.displayedCount >= allNews.length) return;
+
+      state.loadingMore = true;
+
+      // Add loading indicator
+      const existingIndicator = elements.newsGrid.querySelector('.end-of-news');
+      if (existingIndicator) existingIndicator.remove();
+
+      elements.newsGrid.insertAdjacentHTML('beforeend', `
+        <div class="load-more">
+          <div class="load-more-spinner"></div>
+          <span class="load-more-text">Đang tải thêm...</span>
+        </div>
+      `);
+
+      // Simulate small delay for UX
+      setTimeout(() => {
+        const loadingEl = elements.newsGrid.querySelector('.load-more');
+        if (loadingEl) loadingEl.remove();
+
+        renderNews(false);
+        state.loadingMore = false;
+      }, 300);
+    }
+
+    function handleScroll() {
+      const scrollY = window.scrollY;
+      const windowHeight = window.innerHeight;
+      const docHeight = document.documentElement.scrollHeight;
+
+      // Load more when 200px from bottom
+      if (scrollY + windowHeight >= docHeight - 200) {
+        loadMoreNews();
+      }
     }
 
     // ============================================
@@ -989,15 +1146,18 @@
     elements.sourceTabs.addEventListener('click', (e) => {
       const tab = e.target.closest('.tab');
       if (!tab) return;
-      
+
       // Update active tab
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
-      
-      // Update state and re-render
+
+      // Update state and re-render (reset to first page)
       state.activeSource = tab.dataset.source;
-      renderNews();
+      renderNews(true);
     });
+
+    // Infinite scroll listener
+    window.addEventListener('scroll', handleScroll);
 
     // ============================================
     // INITIALIZATION
