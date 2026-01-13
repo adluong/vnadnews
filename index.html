@@ -700,7 +700,6 @@
         yonhap: {
           name: 'Yonhap News',
           icon: '📰',
-          // Yonhap English RSS (easier to translate)
           rss: 'https://en.yna.co.kr/RSS/news.xml'
         },
         kbs: {
@@ -716,7 +715,7 @@
         koreaherald: {
           name: 'Korea Herald',
           icon: '📋',
-          rss: 'http://www.koreaherald.com/rss_xml.php'
+          rss: 'https://www.koreaherald.com/rss_xml.php'
         }
       },
       
@@ -767,21 +766,34 @@
     
     // Simple translation using MyMemory API (free, no API key needed)
     async function translateToVietnamese(text) {
-      if (!text) return text;
-      
+      if (!text || text.trim() === '') return text;
+
       // Check cache first
       if (state.translationCache.has(text)) {
         return state.translationCache.get(text);
       }
-      
+
       try {
+        // Truncate long text to avoid API limits (500 chars max for MyMemory)
+        const truncatedText = text.length > 450 ? text.substring(0, 450) + '...' : text;
+
         const response = await fetch(
-          `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|vi`
+          `https://api.mymemory.translated.net/get?q=${encodeURIComponent(truncatedText)}&langpair=en|vi`
         );
+
+        if (!response.ok) {
+          console.error('Translation API error:', response.status);
+          return text;
+        }
+
         const data = await response.json();
-        
-        if (data.responseStatus === 200 && data.responseData.translatedText) {
-          const translated = data.responseData.translatedText;
+
+        if (data.responseStatus === 200 && data.responseData?.translatedText) {
+          let translated = data.responseData.translatedText;
+          // MyMemory sometimes returns uppercase warning - filter it out
+          if (translated.includes('MYMEMORY WARNING')) {
+            translated = text;
+          }
           state.translationCache.set(text, translated);
           return translated;
         }
@@ -792,37 +804,103 @@
       }
     }
 
-    // Translate a batch of news items (parallel for speed)
+    // Translate a batch of news items (parallel for speed, with rate limiting)
     async function translateNewsItems(items) {
-      const translationPromises = items.map(async (item) => {
-        // Translate title if not already translated
-        if (!item.titleVi || item.titleVi === item.titleOriginal) {
-          item.titleVi = await translateToVietnamese(item.titleOriginal);
+      // Process items in smaller batches to avoid rate limiting
+      const batchSize = 3;
+
+      for (let i = 0; i < items.length; i += batchSize) {
+        const batch = items.slice(i, i + batchSize);
+        const translationPromises = batch.map(async (item) => {
+          // Mark as translating
+          item.isTranslating = true;
+
+          // Translate title if not already translated
+          if (!item.titleVi || item.titleVi === item.titleOriginal) {
+            item.titleVi = await translateToVietnamese(item.titleOriginal);
+          }
+
+          // Translate description if exists and not already translated
+          if (item.description && (!item.descriptionVi || item.descriptionVi === item.description)) {
+            const cleanDesc = item.description.replace(/<[^>]*>/g, '').trim();
+            if (cleanDesc) {
+              item.descriptionVi = await translateToVietnamese(cleanDesc);
+            }
+          }
+
+          item.isTranslating = false;
+          item.isTranslated = true;
+        });
+
+        await Promise.all(translationPromises);
+
+        // Small delay between batches to avoid rate limiting
+        if (i + batchSize < items.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
         }
-        // Translate description if exists and not already translated
-        if (item.description && (!item.descriptionVi || item.descriptionVi === item.description)) {
-          const cleanDesc = item.description.replace(/<[^>]*>/g, '').trim();
-          item.descriptionVi = await translateToVietnamese(cleanDesc);
-        }
-      });
-      await Promise.all(translationPromises);
+      }
     }
 
     // ============================================
     // RSS PARSING
     // ============================================
-    
+
+    // List of CORS proxies to try (fallback chain)
+    const CORS_PROXIES = [
+      'https://api.allorigins.win/raw?url=',
+      'https://corsproxy.io/?',
+      'https://api.codetabs.com/v1/proxy?quest='
+    ];
+
     async function fetchRSS(url) {
-      try {
-        const response = await fetch(CONFIG.corsProxy + encodeURIComponent(url));
-        const text = await response.text();
-        const parser = new DOMParser();
-        const xml = parser.parseFromString(text, 'text/xml');
-        return xml;
-      } catch (error) {
-        console.error('RSS fetch error:', error);
-        return null;
+      let lastError = null;
+
+      // Try each proxy in order
+      for (const proxy of CORS_PROXIES) {
+        try {
+          const proxyUrl = proxy + encodeURIComponent(url);
+          const response = await fetch(proxyUrl, {
+            signal: AbortSignal.timeout(10000) // 10 second timeout
+          });
+
+          if (!response.ok) {
+            console.warn(`Proxy ${proxy} returned status ${response.status}`);
+            continue;
+          }
+
+          const text = await response.text();
+
+          // Check if we got valid XML
+          if (!text || text.trim() === '' || text.includes('<!DOCTYPE html>')) {
+            console.warn(`Proxy ${proxy} returned invalid content for ${url}`);
+            continue;
+          }
+
+          const parser = new DOMParser();
+          const xml = parser.parseFromString(text, 'text/xml');
+
+          // Check for XML parsing errors
+          const parseError = xml.querySelector('parsererror');
+          if (parseError) {
+            console.warn(`XML parse error from ${proxy}: ${parseError.textContent}`);
+            continue;
+          }
+
+          // Check if we have items
+          const items = xml.querySelectorAll('item');
+          if (items.length > 0) {
+            return xml;
+          }
+
+          console.warn(`No items found in RSS from ${proxy} for ${url}`);
+        } catch (error) {
+          lastError = error;
+          console.warn(`Proxy ${proxy} failed:`, error.message);
+        }
       }
+
+      console.error('All CORS proxies failed for:', url, lastError);
+      return null;
     }
 
     function parseRSSItems(xml, sourceName) {
@@ -861,24 +939,28 @@
     
     async function fetchAllNews() {
       if (state.loading) return;
-      
+
       state.loading = true;
       elements.refreshBtn.classList.add('spinning');
       showTranslateStatus(true);
-      
+
       const allNews = [];
-      const sourcesToFetch = state.activeSource === 'all' 
-        ? Object.keys(CONFIG.sources) 
-        : [state.activeSource];
-      
-      // Fetch from all selected sources in parallel
+      // Always fetch from ALL sources regardless of active tab
+      const sourcesToFetch = Object.keys(CONFIG.sources);
+
+      console.log('Fetching news from sources:', sourcesToFetch);
+
+      // Fetch from all sources in parallel
       const fetchPromises = sourcesToFetch.map(async (sourceKey) => {
         const source = CONFIG.sources[sourceKey];
         if (!source) return [];
 
         try {
+          console.log(`Fetching from ${sourceKey}: ${source.rss}`);
           const xml = await fetchRSS(source.rss);
-          return parseRSSItems(xml, sourceKey);
+          const items = parseRSSItems(xml, sourceKey);
+          console.log(`Got ${items.length} items from ${sourceKey}`);
+          return items;
         } catch (error) {
           console.error(`Error fetching ${sourceKey}:`, error);
           return [];
@@ -886,16 +968,18 @@
       });
 
       const results = await Promise.allSettled(fetchPromises);
-      results.forEach(result => {
-        if (result.status === 'fulfilled') {
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled' && result.value.length > 0) {
           allNews.push(...result.value);
+        } else if (result.status === 'rejected') {
+          console.error(`Failed to fetch ${sourcesToFetch[index]}:`, result.reason);
         }
       });
-      
+
+      console.log(`Total news fetched: ${allNews.length}`);
+
       // Sort by date (newest first)
       allNews.sort((a, b) => b.pubDate - a.pubDate);
-
-      // Note: Translation is now done lazily in renderNews() for better performance
 
       // Check for new items
       const existingIds = new Set(state.news.map(n => n.titleOriginal));
@@ -904,11 +988,12 @@
           item.isNew = state.news.length > 0;
         }
       });
-      
+
       state.news = allNews;
       state.loading = false;
 
       elements.refreshBtn.classList.remove('spinning');
+      showTranslateStatus(false);
       updateLastUpdate();
       await renderNews();
 
@@ -1013,6 +1098,16 @@
       const source = CONFIG.sources[item.source];
       const timeAgo = getTimeAgo(item.pubDate);
 
+      // Show Vietnamese title, or original if translation failed/pending
+      const displayTitle = item.titleVi && item.titleVi !== item.titleOriginal
+        ? item.titleVi
+        : item.titleOriginal;
+
+      // Show translated description if available
+      const displayDesc = item.descriptionVi && item.descriptionVi !== item.description
+        ? item.descriptionVi
+        : (item.description ? item.description.replace(/<[^>]*>/g, '').trim() : '');
+
       return `
         <a href="${item.link}" target="_blank" rel="noopener"
            class="news-card" style="animation-delay: ${index * 0.05}s">
@@ -1022,9 +1117,9 @@
             </span>
             ${item.isNew ? '<span class="card-new-badge">MỚI</span>' : ''}
           </div>
-          <h3 class="card-title-vi">${item.titleVi}</h3>
+          <h3 class="card-title-vi">${displayTitle}</h3>
           <p class="card-title-ko">${item.titleOriginal}</p>
-          ${item.descriptionVi ? `<p class="card-summary">${item.descriptionVi}</p>` : ''}
+          ${displayDesc ? `<p class="card-summary">${displayDesc}</p>` : ''}
           <div class="card-footer">
             <span class="card-date">${timeAgo}</span>
             <span class="card-link">Đọc thêm →</span>
@@ -1105,15 +1200,23 @@
       state.loadingMore = false;
     }
 
+    // Debounced scroll handler
+    let scrollTimeout = null;
     function handleScroll() {
-      const scrollY = window.scrollY;
-      const windowHeight = window.innerHeight;
-      const docHeight = document.documentElement.scrollHeight;
+      if (scrollTimeout) return;
 
-      // Load more when 200px from bottom
-      if (scrollY + windowHeight >= docHeight - 200) {
-        loadMoreNews();
-      }
+      scrollTimeout = setTimeout(() => {
+        scrollTimeout = null;
+
+        const scrollY = window.scrollY;
+        const windowHeight = window.innerHeight;
+        const docHeight = document.documentElement.scrollHeight;
+
+        // Load more when 300px from bottom
+        if (scrollY + windowHeight >= docHeight - 300) {
+          loadMoreNews();
+        }
+      }, 100);
     }
 
     // ============================================
