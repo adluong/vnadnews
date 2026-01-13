@@ -23,7 +23,7 @@ news_app/
 
 - Yonhap News (English RSS)
 - KBS World
-- Arirang
+- Korea Times
 - Korea Herald
 
 ## Key Configuration
@@ -40,8 +40,8 @@ No build system required. Open `index.html` directly in a browser.
 
 ## Key Features
 
-- Real-time news aggregation from 4 Korean news sources
-- Automatic translation to Vietnamese (MyMemory API)
+- Real-time news aggregation from 4 Korean news sources (Yonhap, KBS World, Korea Times, Korea Herald)
+- Automatic translation to Vietnamese (Google Translate, Lingva, MyMemory fallback chain)
 - Translation caching for performance
 - Auto-refresh every 10 minutes (manual refresh supported)
 - Source filtering tabs

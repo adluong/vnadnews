@@ -644,9 +644,9 @@
       <span class="tab-icon">📺</span>
       <span>KBS World</span>
     </button>
-    <button class="tab" data-source="arirang">
+    <button class="tab" data-source="koreatimes">
       <span class="tab-icon">🌏</span>
-      <span>Arirang</span>
+      <span>Korea Times</span>
     </button>
     <button class="tab" data-source="koreaherald">
       <span class="tab-icon">📋</span>
@@ -672,7 +672,7 @@
   <!-- Footer -->
   <footer class="footer">
     <p>🇰🇷 → 🇻🇳 Dịch tự động bằng AI</p>
-    <p class="footer-note">Nguồn: Yonhap, KBS World, Arirang, Korea Herald</p>
+    <p class="footer-note">Nguồn: Yonhap, KBS World, Korea Times, Korea Herald</p>
   </footer>
 
   <!-- Toast Notification -->
@@ -708,15 +708,15 @@
           icon: '📺',
           rss: 'https://world.kbs.co.kr/rss/rss_news.htm?lang=e'
         },
-        arirang: {
-          name: 'Arirang',
+        koreatimes: {
+          name: 'Korea Times',
           icon: '🌏',
-          rss: 'https://www.arirang.com/rss/news_all.xml'
+          rss: 'https://www.koreatimes.co.kr/www2/common/rss.xml'
         },
         koreaherald: {
           name: 'Korea Herald',
           icon: '📋',
-          rss: 'https://www.koreaherald.com/rss_xml.php'
+          rss: 'https://www.koreaherald.com/common/rss.xml'
         }
       },
       
@@ -774,6 +774,26 @@
     // TRANSLATION (Using LibreTranslate or Google Translate)
     // ============================================
     
+    // Translation state for rate limiting
+    let translationState = {
+      lastRequestTime: 0,
+      minDelay: 800,        // Minimum delay between requests (ms)
+      backoffMultiplier: 1,  // Increases on errors
+      maxBackoff: 5          // Max backoff multiplier
+    };
+
+    // Helper: wait with exponential backoff
+    async function waitForRateLimit() {
+      const now = Date.now();
+      const elapsed = now - translationState.lastRequestTime;
+      const requiredDelay = translationState.minDelay * translationState.backoffMultiplier;
+
+      if (elapsed < requiredDelay) {
+        await new Promise(resolve => setTimeout(resolve, requiredDelay - elapsed));
+      }
+      translationState.lastRequestTime = Date.now();
+    }
+
     // Translation using Google Translate API (free, no API key needed)
     async function translateToVietnamese(text) {
       if (!text || text.trim() === '') return text;
@@ -782,6 +802,9 @@
       if (state.translationCache.has(text)) {
         return state.translationCache.get(text);
       }
+
+      // Wait for rate limiting
+      await waitForRateLimit();
 
       // Try multiple translation methods
       const translators = [
@@ -795,10 +818,22 @@
           const result = await translator(text);
           if (result && result !== text) {
             state.translationCache.set(text, result);
+            // Success - reduce backoff
+            translationState.backoffMultiplier = Math.max(1, translationState.backoffMultiplier - 0.5);
             return result;
           }
         } catch (e) {
           console.warn(`Translator failed:`, e.message);
+          // Check for rate limit errors
+          if (e.message.includes('429') || e.message.includes('rate') || e.message.includes('limit')) {
+            // Increase backoff on rate limit
+            translationState.backoffMultiplier = Math.min(
+              translationState.maxBackoff,
+              translationState.backoffMultiplier * 1.5
+            );
+            console.warn(`Rate limited, backoff now: ${translationState.backoffMultiplier}x`);
+            await new Promise(resolve => setTimeout(resolve, 2000)); // Extra wait on rate limit
+          }
         }
       }
 
@@ -885,11 +920,7 @@
 
         item.isTranslating = false;
         item.isTranslated = true;
-
-        // Small delay between items to avoid rate limiting
-        if (i < items.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 300));
-        }
+        // Rate limiting is now handled by translateToVietnamese function
       }
 
       console.log('Translation complete');
@@ -903,7 +934,9 @@
     const CORS_PROXIES = [
       'https://api.allorigins.win/raw?url=',
       'https://corsproxy.io/?',
-      'https://api.codetabs.com/v1/proxy?quest='
+      'https://api.codetabs.com/v1/proxy?quest=',
+      'https://cors-anywhere.herokuapp.com/',
+      'https://thingproxy.freeboard.io/fetch/'
     ];
 
     async function fetchRSS(url) {
@@ -1086,7 +1119,7 @@
         },
         {
           id: '3',
-          source: 'arirang',
+          source: 'koreatimes',
           titleOriginal: 'K-pop group achieves record-breaking album sales',
           titleVi: 'Nhóm K-pop đạt doanh số album kỷ lục',
           descriptionVi: 'Album mới nhất của nhóm nhạc K-pop nổi tiếng đã phá vỡ kỷ lục doanh số trong tuần đầu tiên phát hành, với hơn 2 triệu bản được bán ra trên toàn cầu. Đây là thành tích cao nhất trong lịch sử âm nhạc Hàn Quốc.',
