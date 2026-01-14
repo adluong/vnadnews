@@ -361,15 +361,6 @@
       color: var(--text);
     }
 
-    .card-title-ko {
-      font-size: 0.85rem;
-      color: var(--text-muted);
-      font-family: 'Noto Sans KR', sans-serif;
-      line-height: 1.5;
-      padding-left: 0.8rem;
-      border-left: 2px solid var(--border);
-    }
-
     .card-summary {
       font-size: 0.9rem;
       color: var(--text-muted);
@@ -511,37 +502,6 @@
       font-size: 1.3rem;
     }
 
-    /* Translation Modal */
-    .translate-status {
-      position: fixed;
-      bottom: 2rem;
-      left: 50%;
-      transform: translateX(-50%);
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 50px;
-      padding: 0.8rem 1.5rem;
-      display: none;
-      align-items: center;
-      gap: 0.8rem;
-      font-size: 0.85rem;
-      color: var(--text-muted);
-      z-index: 1000;
-    }
-
-    .translate-status.show {
-      display: flex;
-    }
-
-    .translate-spinner {
-      width: 16px;
-      height: 16px;
-      border: 2px solid var(--border);
-      border-top-color: var(--accent);
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-    }
-
     /* Load More Indicator */
     .load-more {
       grid-column: 1 / -1;
@@ -617,7 +577,7 @@
         <span class="logo-icon">한</span>
         <div class="logo-text">
           <h1>Tin Tức Hàn Quốc</h1>
-          <p>Korean News • Dịch sang Tiếng Việt</p>
+          <p>Korean News • Tiếng Việt</p>
         </div>
       </div>
       <div class="header-actions">
@@ -644,14 +604,6 @@
       <span class="tab-icon">📺</span>
       <span>KBS World</span>
     </button>
-    <button class="tab" data-source="koreatimes">
-      <span class="tab-icon">🌏</span>
-      <span>Korea Times</span>
-    </button>
-    <button class="tab" data-source="koreaherald">
-      <span class="tab-icon">📋</span>
-      <span>Korea Herald</span>
-    </button>
   </nav>
 
   <!-- Status Bar -->
@@ -671,8 +623,8 @@
 
   <!-- Footer -->
   <footer class="footer">
-    <p>🇰🇷 → 🇻🇳 Dịch tự động bằng AI</p>
-    <p class="footer-note">Nguồn: Yonhap, KBS World, Korea Times, Korea Herald</p>
+    <p>🇰🇷 → 🇻🇳 Tin tức Hàn Quốc bằng tiếng Việt</p>
+    <p class="footer-note">Nguồn: Yonhap, KBS World</p>
   </footer>
 
   <!-- Toast Notification -->
@@ -681,11 +633,6 @@
     <span id="toastMessage">Tin mới!</span>
   </div>
 
-  <!-- Translation Status -->
-  <div class="translate-status" id="translateStatus">
-    <div class="translate-spinner"></div>
-    <span>Đang dịch tin tức...</span>
-  </div>
 
   <script>
     // ============================================
@@ -696,27 +643,17 @@
       // CORS proxy for RSS feeds (you may need to use your own or deploy one)
       corsProxy: 'https://api.allorigins.win/raw?url=',
       
-      // News sources with their RSS feeds
+      // News sources with their RSS feeds (Vietnamese versions)
       sources: {
         yonhap: {
           name: 'Yonhap News',
           icon: '📰',
-          rss: 'https://en.yna.co.kr/RSS/news.xml'
+          rss: 'https://vi.yna.co.kr/RSS/news.xml'
         },
         kbs: {
           name: 'KBS World',
           icon: '📺',
-          rss: 'https://world.kbs.co.kr/rss/rss_news.htm?lang=e'
-        },
-        koreatimes: {
-          name: 'Korea Times',
-          icon: '🌏',
-          rss: 'https://www.koreatimes.co.kr/www2/common/rss.xml'
-        },
-        koreaherald: {
-          name: 'Korea Herald',
-          icon: '📋',
-          rss: 'https://www.koreaherald.com/common/rss.xml'
+          rss: 'https://world.kbs.co.kr/rss/rss_news.htm?lang=v'
         }
       },
       
@@ -741,8 +678,7 @@
       loading: false,
       loadingMore: false,
       autoRefresh: true,
-      refreshTimer: null,
-      translationCache: new Map()
+      refreshTimer: null
     };
 
     // ============================================
@@ -757,7 +693,6 @@
       newsCount: document.getElementById('newsCount'),
       toast: document.getElementById('toast'),
       toastMessage: document.getElementById('toastMessage'),
-      translateStatus: document.getElementById('translateStatus'),
       sourceTabs: document.getElementById('sourceTabs'),
       debugStatus: document.getElementById('debugStatus')
     };
@@ -768,162 +703,6 @@
         elements.debugStatus.textContent = msg;
       }
       console.log('[DEBUG]', msg);
-    }
-
-    // ============================================
-    // TRANSLATION (Using LibreTranslate or Google Translate)
-    // ============================================
-    
-    // Translation state for rate limiting
-    let translationState = {
-      lastRequestTime: 0,
-      minDelay: 800,        // Minimum delay between requests (ms)
-      backoffMultiplier: 1,  // Increases on errors
-      maxBackoff: 5          // Max backoff multiplier
-    };
-
-    // Helper: wait with exponential backoff
-    async function waitForRateLimit() {
-      const now = Date.now();
-      const elapsed = now - translationState.lastRequestTime;
-      const requiredDelay = translationState.minDelay * translationState.backoffMultiplier;
-
-      if (elapsed < requiredDelay) {
-        await new Promise(resolve => setTimeout(resolve, requiredDelay - elapsed));
-      }
-      translationState.lastRequestTime = Date.now();
-    }
-
-    // Translation using Google Translate API (free, no API key needed)
-    async function translateToVietnamese(text) {
-      if (!text || text.trim() === '') return text;
-
-      // Check cache first
-      if (state.translationCache.has(text)) {
-        return state.translationCache.get(text);
-      }
-
-      // Wait for rate limiting
-      await waitForRateLimit();
-
-      // Try multiple translation methods
-      const translators = [
-        translateWithGoogle,
-        translateWithLingva,
-        translateWithMyMemory
-      ];
-
-      for (const translator of translators) {
-        try {
-          const result = await translator(text);
-          if (result && result !== text) {
-            state.translationCache.set(text, result);
-            // Success - reduce backoff
-            translationState.backoffMultiplier = Math.max(1, translationState.backoffMultiplier - 0.5);
-            return result;
-          }
-        } catch (e) {
-          console.warn(`Translator failed:`, e.message);
-          // Check for rate limit errors
-          if (e.message.includes('429') || e.message.includes('rate') || e.message.includes('limit')) {
-            // Increase backoff on rate limit
-            translationState.backoffMultiplier = Math.min(
-              translationState.maxBackoff,
-              translationState.backoffMultiplier * 1.5
-            );
-            console.warn(`Rate limited, backoff now: ${translationState.backoffMultiplier}x`);
-            await new Promise(resolve => setTimeout(resolve, 2000)); // Extra wait on rate limit
-          }
-        }
-      }
-
-      return text; // Return original if all fail
-    }
-
-    // Google Translate (via public API)
-    async function translateWithGoogle(text) {
-      const truncated = text.length > 500 ? text.substring(0, 500) : text;
-      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=vi&dt=t&q=${encodeURIComponent(truncated)}`;
-
-      const response = await fetch(url);
-      if (!response.ok) throw new Error('Google API error: ' + response.status);
-
-      const data = await response.json();
-      // Response format: [[["translated text","original text",null,null,10]],null,"en",...]
-      if (data && data[0] && data[0][0] && data[0][0][0]) {
-        const translated = data[0].map(item => item[0]).join('');
-        console.log('Google translated:', text.substring(0, 30), '->', translated.substring(0, 30));
-        return translated;
-      }
-      throw new Error('Invalid Google response format');
-    }
-
-    // Lingva Translate (open source Google Translate frontend)
-    async function translateWithLingva(text) {
-      const truncated = text.length > 500 ? text.substring(0, 500) : text;
-      const url = `https://lingva.ml/api/v1/en/vi/${encodeURIComponent(truncated)}`;
-
-      const response = await fetch(url);
-      if (!response.ok) throw new Error('Lingva API error: ' + response.status);
-
-      const data = await response.json();
-      if (data && data.translation) {
-        console.log('Lingva translated:', text.substring(0, 30), '->', data.translation.substring(0, 30));
-        return data.translation;
-      }
-      throw new Error('Invalid Lingva response');
-    }
-
-    // MyMemory Translate (fallback)
-    async function translateWithMyMemory(text) {
-      const truncated = text.length > 450 ? text.substring(0, 450) : text;
-      const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(truncated)}&langpair=en|vi`;
-
-      const response = await fetch(url);
-      if (!response.ok) throw new Error('MyMemory API error: ' + response.status);
-
-      const data = await response.json();
-      if (data.responseStatus === 200 && data.responseData?.translatedText) {
-        const translated = data.responseData.translatedText;
-        if (!translated.includes('MYMEMORY WARNING')) {
-          console.log('MyMemory translated:', text.substring(0, 30), '->', translated.substring(0, 30));
-          return translated;
-        }
-      }
-      throw new Error('MyMemory translation failed');
-    }
-
-    // Translate a batch of news items (parallel for speed, with rate limiting)
-    async function translateNewsItems(items) {
-      console.log(`Translating ${items.length} items...`);
-
-      // Process items one at a time to avoid rate limiting
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-
-        // Mark as translating
-        item.isTranslating = true;
-
-        // Translate title if not already translated
-        if (!item.titleVi) {
-          console.log(`Translating title ${i + 1}/${items.length}: ${item.titleOriginal.substring(0, 40)}...`);
-          item.titleVi = await translateToVietnamese(item.titleOriginal);
-        }
-
-        // Translate description if exists and not already translated
-        if (item.description && !item.descriptionVi) {
-          const cleanDesc = item.description.replace(/<[^>]*>/g, '').trim();
-          if (cleanDesc) {
-            item.descriptionVi = await translateToVietnamese(cleanDesc);
-          }
-        }
-
-        item.isTranslating = false;
-        item.isTranslated = true;
-        // Rate limiting is now handled by translateToVietnamese function
-      }
-
-      console.log('Translation complete');
     }
 
     // ============================================
@@ -992,31 +771,29 @@
 
     function parseRSSItems(xml, sourceName) {
       if (!xml) return [];
-      
+
       const items = xml.querySelectorAll('item');
       const newsItems = [];
-      
+
       items.forEach((item, index) => {
         if (index >= CONFIG.maxItemsPerSource) return;
-        
+
         const title = item.querySelector('title')?.textContent || '';
         const link = item.querySelector('link')?.textContent || '';
         const pubDate = item.querySelector('pubDate')?.textContent || '';
         const description = item.querySelector('description')?.textContent || '';
-        
+
         newsItems.push({
           id: `${sourceName}-${index}-${Date.now()}`,
           source: sourceName,
-          titleOriginal: title,
-          titleVi: null, // Will be translated
-          description: description,
-          descriptionVi: null, // Will be translated
+          title: title,
+          description: description ? description.replace(/<[^>]*>/g, '').trim() : '',
           link: link,
           pubDate: new Date(pubDate),
           isNew: false
         });
       });
-      
+
       return newsItems;
     }
 
@@ -1029,7 +806,6 @@
 
       state.loading = true;
       elements.refreshBtn.classList.add('spinning');
-      showTranslateStatus(true);
 
       const allNews = [];
       // Always fetch from ALL sources regardless of active tab
@@ -1069,9 +845,9 @@
       allNews.sort((a, b) => b.pubDate - a.pubDate);
 
       // Check for new items
-      const existingIds = new Set(state.news.map(n => n.titleOriginal));
+      const existingIds = new Set(state.news.map(n => n.title));
       allNews.forEach(item => {
-        if (!existingIds.has(item.titleOriginal)) {
+        if (!existingIds.has(item.title)) {
           item.isNew = state.news.length > 0;
         }
       });
@@ -1080,9 +856,8 @@
       state.loading = false;
 
       elements.refreshBtn.classList.remove('spinning');
-      showTranslateStatus(false);
       updateLastUpdate();
-      await renderNews();
+      renderNews();
 
       // Show toast if new items
       const newItems = allNews.filter(n => n.isNew);
@@ -1100,9 +875,8 @@
         {
           id: '1',
           source: 'yonhap',
-          titleOriginal: 'South Korea sees economic growth forecast raised',
-          titleVi: 'Hàn Quốc nâng dự báo tăng trưởng kinh tế',
-          descriptionVi: 'Các chuyên gia kinh tế đã nâng dự báo tăng trưởng GDP của Hàn Quốc trong năm nay lên mức cao hơn, nhờ vào sự phục hồi mạnh mẽ của ngành xuất khẩu và tiêu dùng nội địa. Chính phủ cũng đã công bố các biện pháp hỗ trợ doanh nghiệp nhỏ và vừa.',
+          title: 'Hàn Quốc nâng dự báo tăng trưởng kinh tế',
+          description: 'Các chuyên gia kinh tế đã nâng dự báo tăng trưởng GDP của Hàn Quốc trong năm nay lên mức cao hơn, nhờ vào sự phục hồi mạnh mẽ của ngành xuất khẩu và tiêu dùng nội địa.',
           link: '#',
           pubDate: new Date(),
           isNew: false
@@ -1110,29 +884,26 @@
         {
           id: '2',
           source: 'kbs',
-          titleOriginal: 'Winter cold wave warning issued across the country',
-          titleVi: 'Cảnh báo giá rét mùa đông được ban hành trên toàn quốc',
-          descriptionVi: 'Cơ quan khí tượng Hàn Quốc đã ban hành cảnh báo về đợt không khí lạnh sắp tràn xuống, với nhiệt độ dự kiến giảm xuống dưới âm 15 độ C tại các vùng núi phía bắc. Người dân được khuyến cáo hạn chế ra ngoài vào ban đêm.',
+          title: 'Cảnh báo giá rét mùa đông được ban hành trên toàn quốc',
+          description: 'Cơ quan khí tượng Hàn Quốc đã ban hành cảnh báo về đợt không khí lạnh sắp tràn xuống, với nhiệt độ dự kiến giảm xuống dưới âm 15 độ C tại các vùng núi phía bắc.',
           link: '#',
           pubDate: new Date(Date.now() - 3600000),
           isNew: false
         },
         {
           id: '3',
-          source: 'koreatimes',
-          titleOriginal: 'K-pop group achieves record-breaking album sales',
-          titleVi: 'Nhóm K-pop đạt doanh số album kỷ lục',
-          descriptionVi: 'Album mới nhất của nhóm nhạc K-pop nổi tiếng đã phá vỡ kỷ lục doanh số trong tuần đầu tiên phát hành, với hơn 2 triệu bản được bán ra trên toàn cầu. Đây là thành tích cao nhất trong lịch sử âm nhạc Hàn Quốc.',
+          source: 'yonhap',
+          title: 'Nhóm K-pop đạt doanh số album kỷ lục',
+          description: 'Album mới nhất của nhóm nhạc K-pop nổi tiếng đã phá vỡ kỷ lục doanh số trong tuần đầu tiên phát hành, với hơn 2 triệu bản được bán ra trên toàn cầu.',
           link: '#',
           pubDate: new Date(Date.now() - 7200000),
           isNew: false
         },
         {
           id: '4',
-          source: 'koreaherald',
-          titleOriginal: 'Korea-Vietnam economic cooperation strengthened',
-          titleVi: 'Hợp tác kinh tế Hàn Quốc-Việt Nam được tăng cường',
-          descriptionVi: 'Hai nước đã ký kết nhiều thỏa thuận hợp tác mới trong các lĩnh vực công nghệ, năng lượng tái tạo và giáo dục. Kim ngạch thương mại song phương dự kiến sẽ đạt 100 tỷ USD trong năm tới, tăng 15% so với năm trước.',
+          source: 'kbs',
+          title: 'Hợp tác kinh tế Hàn Quốc-Việt Nam được tăng cường',
+          description: 'Hai nước đã ký kết nhiều thỏa thuận hợp tác mới trong các lĩnh vực công nghệ, năng lượng tái tạo và giáo dục. Kim ngạch thương mại song phương dự kiến sẽ đạt 100 tỷ USD.',
           link: '#',
           pubDate: new Date(Date.now() - 10800000),
           isNew: false
@@ -1140,9 +911,8 @@
         {
           id: '5',
           source: 'yonhap',
-          titleOriginal: 'Seoul announces new cultural festival plans',
-          titleVi: 'Seoul công bố kế hoạch lễ hội văn hóa mới',
-          descriptionVi: 'Thành phố Seoul sẽ tổ chức lễ hội văn hóa quốc tế kéo dài một tháng vào mùa xuân năm sau, với sự tham gia của hơn 50 quốc gia. Sự kiện sẽ bao gồm các buổi biểu diễn nghệ thuật, triển lãm và ẩm thực đường phố.',
+          title: 'Seoul công bố kế hoạch lễ hội văn hóa mới',
+          description: 'Thành phố Seoul sẽ tổ chức lễ hội văn hóa quốc tế kéo dài một tháng vào mùa xuân năm sau, với sự tham gia của hơn 50 quốc gia.',
           link: '#',
           pubDate: new Date(Date.now() - 14400000),
           isNew: false
@@ -1150,9 +920,8 @@
         {
           id: '6',
           source: 'kbs',
-          titleOriginal: 'National football team prepares for Asian Cup',
-          titleVi: 'Đội tuyển bóng đá quốc gia chuẩn bị cho Asian Cup',
-          descriptionVi: 'Đội tuyển bóng đá quốc gia Hàn Quốc đang tập trung chuẩn bị cho giải vô địch Asian Cup sắp tới. Huấn luyện viên trưởng đã triệu tập 26 cầu thủ, bao gồm nhiều ngôi sao đang thi đấu tại châu Âu.',
+          title: 'Đội tuyển bóng đá quốc gia chuẩn bị cho Asian Cup',
+          description: 'Đội tuyển bóng đá quốc gia Hàn Quốc đang tập trung chuẩn bị cho giải vô địch Asian Cup sắp tới. Huấn luyện viên trưởng đã triệu tập 26 cầu thủ.',
           link: '#',
           pubDate: new Date(Date.now() - 18000000),
           isNew: false
@@ -1185,13 +954,6 @@
       const source = CONFIG.sources[item.source];
       const timeAgo = getTimeAgo(item.pubDate);
 
-      // Show Vietnamese title (translated), fallback to original if not translated yet
-      const displayTitle = item.titleVi || item.titleOriginal;
-
-      // Show translated description if available
-      const displayDesc = item.descriptionVi ||
-        (item.description ? item.description.replace(/<[^>]*>/g, '').trim() : '');
-
       return `
         <a href="${item.link}" target="_blank" rel="noopener"
            class="news-card" style="animation-delay: ${index * 0.05}s">
@@ -1201,9 +963,8 @@
             </span>
             ${item.isNew ? '<span class="card-new-badge">MỚI</span>' : ''}
           </div>
-          <h3 class="card-title-vi">${displayTitle}</h3>
-          <p class="card-title-ko">${item.titleOriginal}</p>
-          ${displayDesc ? `<p class="card-summary">${displayDesc}</p>` : ''}
+          <h3 class="card-title-vi">${item.title}</h3>
+          ${item.description ? `<p class="card-summary">${item.description}</p>` : ''}
           <div class="card-footer">
             <span class="card-date">${timeAgo}</span>
             <span class="card-link">Đọc thêm →</span>
@@ -1212,7 +973,7 @@
       `;
     }
 
-    async function renderNews(reset = true) {
+    function renderNews(reset = true) {
       const allNews = getFilteredNews();
       console.log(`renderNews called with ${allNews.length} items, reset=${reset}`);
 
@@ -1239,16 +1000,6 @@
       const newsToRender = allNews.slice(startIndex, endIndex);
 
       console.log(`Rendering items ${startIndex} to ${endIndex}`);
-      console.log('Items before translation:', newsToRender.map(n => ({ title: n.titleOriginal.substring(0, 30), titleVi: n.titleVi })));
-
-      // Lazy translation: only translate items being displayed
-      setDebugStatus(`Đang dịch ${newsToRender.length} tiêu đề...`);
-      showTranslateStatus(true);
-      await translateNewsItems(newsToRender);
-      showTranslateStatus(false);
-      setDebugStatus('Dịch xong!');
-
-      console.log('Items after translation:', newsToRender.map(n => ({ title: n.titleOriginal.substring(0, 30), titleVi: n.titleVi?.substring(0, 30) })));
 
       const html = newsToRender.map((item, i) => renderNewsCard(item, startIndex + i)).join('');
       elements.newsGrid.insertAdjacentHTML('beforeend', html);
@@ -1266,7 +1017,7 @@
       }
     }
 
-    async function loadMoreNews() {
+    function loadMoreNews() {
       const allNews = getFilteredNews();
       if (state.loadingMore || state.displayedCount >= allNews.length) return;
 
@@ -1276,18 +1027,7 @@
       const existingIndicator = elements.newsGrid.querySelector('.end-of-news');
       if (existingIndicator) existingIndicator.remove();
 
-      elements.newsGrid.insertAdjacentHTML('beforeend', `
-        <div class="load-more">
-          <div class="load-more-spinner"></div>
-          <span class="load-more-text">Đang dịch tin tức...</span>
-        </div>
-      `);
-
-      // Translate and render next batch
-      await renderNews(false);
-
-      const loadingEl = elements.newsGrid.querySelector('.load-more');
-      if (loadingEl) loadingEl.remove();
+      renderNews(false);
 
       state.loadingMore = false;
     }
@@ -1339,10 +1079,6 @@
       setTimeout(() => elements.toast.classList.remove('show'), 3000);
     }
 
-    function showTranslateStatus(show) {
-      elements.translateStatus.classList.toggle('show', show);
-    }
-
     function startAutoRefresh() {
       if (state.refreshTimer) clearInterval(state.refreshTimer);
       if (state.autoRefresh) {
@@ -1361,7 +1097,7 @@
       startAutoRefresh();
     });
 
-    elements.sourceTabs.addEventListener('click', async (e) => {
+    elements.sourceTabs.addEventListener('click', (e) => {
       const tab = e.target.closest('.tab');
       if (!tab) return;
 
@@ -1371,7 +1107,7 @@
 
       // Update state and re-render (reset to first page)
       state.activeSource = tab.dataset.source;
-      await renderNews(true);
+      renderNews(true);
     });
 
     // Infinite scroll listener
@@ -1383,30 +1119,16 @@
 
     async function init() {
       renderSkeleton();
-      setDebugStatus('Kiểm tra API dịch...');
-
-      // Test translation API first
-      console.log('Testing translation APIs...');
-      const testResult = await translateToVietnamese('Hello world');
-      console.log('Test result:', testResult);
-
-      if (testResult === 'Hello world') {
-        setDebugStatus('API dịch thất bại - dùng tiếng Anh');
-        console.error('All translation APIs failed!');
-      } else {
-        setDebugStatus('API OK: ' + testResult);
-        console.log('Translation working:', testResult);
-      }
+      setDebugStatus('Đang tải tin từ RSS...');
 
       // Try to fetch real RSS feeds
-      setDebugStatus('Đang tải tin từ RSS...');
       await fetchAllNews();
 
       // If no news loaded, use sample data
       if (state.news.length === 0) {
         setDebugStatus('RSS thất bại, dùng dữ liệu mẫu');
         state.news = getSampleNews();
-        await renderNews();
+        renderNews();
         showToast('Đang dùng dữ liệu mẫu');
       } else {
         setDebugStatus(`Đã tải ${state.news.length} tin`);
